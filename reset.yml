@@ -1,0 +1,42 @@
+---
+# k3s cluster reset playbook
+# this playbook completely removes k3s from all nodes and cleans up all
+# associated files, configurations, and network settings
+# use this to return nodes to a clean state for fresh deployment
+
+
+- name: Reset k3s cluster
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Include reset role
+      ansible.builtin.import_role:
+        name: reset
+
+- name: Clean up local files
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Remove local kubeconfig
+      ansible.builtin.file:
+        path: ./kubeconfig
+        state: absent
+
+    - name: Remove local Ansible fact cache
+      ansible.builtin.file:
+        path: /tmp/ansible_facts
+        state: absent
+
+    - name: Clean SSH known_hosts for all cluster nodes
+      ansible.builtin.command:
+        cmd: "ssh-keygen -R {{ item }}"
+      loop:
+        - 192.168.1.5
+        - 192.168.1.6
+        - 192.168.1.7
+        - 192.168.1.8
+        - 192.168.1.9
+      failed_when: false
+      changed_when: false

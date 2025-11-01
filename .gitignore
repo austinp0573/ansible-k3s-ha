@@ -1,0 +1,32 @@
+# ansible
+*.retry
+/tmp
+/kubeconfig
+
+# ssh
+*.pem
+*.key
+
+# ansible fact cache
+/tmp/ansible_facts
+
+# python
+__pycache__/
+*.py[cod]
+
+# ide
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# os
+.DS_Store
+Thumbs.db
+
+notes
+all.yml
+hosts.ini
+deploy.log
+kubeconfig

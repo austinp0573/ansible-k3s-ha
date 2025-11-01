@@ -1,0 +1,84 @@
+---
+# metallb deployment
+# deploys metallb to provide LoadBalancer service type support
+# uses Layer 2 mode for simplicity (no BGP router required)
+
+- name: Ensure manifests directory exists
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download MetalLB manifest
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/metallb/metallb/{{ metal_lb_controller_tag_version }}/config/manifests/metallb-{{ metal_lb_type }}.yaml"
+    dest: /var/lib/rancher/k3s/server/manifests/metallb.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Update MetalLB speaker image version
+  ansible.builtin.replace:
+    path: /var/lib/rancher/k3s/server/manifests/metallb.yaml
+    regexp: 'metallb/speaker:{{ metal_lb_controller_tag_version }}'
+    replace: 'metallb/speaker:{{ metal_lb_speaker_tag_version }}'
+
+- name: Wait for MetalLB namespace to be created
+  ansible.builtin.command:
+    cmd: k3s kubectl get namespace metallb-system
+  register: metallb_ns
+  until: metallb_ns.rc == 0
+  retries: 20
+  delay: 10
+  changed_when: false
+
+- name: Wait for MetalLB controller to be ready
+  ansible.builtin.command:
+    cmd: k3s kubectl get deployment -n metallb-system controller -o jsonpath='{.status.availableReplicas}'
+  register: metallb_controller
+  until: metallb_controller.stdout | int > 0
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Wait for MetalLB speaker DaemonSet to be ready
+  ansible.builtin.command:
+    cmd: k3s kubectl get daemonset -n metallb-system speaker -o jsonpath='{.status.numberReady}'
+  register: metallb_speaker
+  until: metallb_speaker.stdout | int >= 3
+  retries: 30
+  delay: 10
+  changed_when: false
+
+# metallb configuration
+
+- name: Create MetalLB IPAddressPool
+  ansible.builtin.template:
+    src: ipaddresspool.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/metallb-ipaddresspool.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create MetalLB L2Advertisement
+  ansible.builtin.template:
+    src: l2advertisement.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/metallb-l2advertisement.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Wait for IPAddressPool to be applied
+  ansible.builtin.command:
+    cmd: k3s kubectl get ipaddresspool -n metallb-system default-pool
+  register: pool_check
+  until: pool_check.rc == 0
+  retries: 20
+  delay: 5
+  changed_when: false
+
+- name: Display MetalLB deployment success
+  ansible.builtin.debug:
+    msg: "MetalLB successfully deployed with IP range {{ metal_lb_ip_range }}"

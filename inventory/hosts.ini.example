@@ -1,0 +1,20 @@
+# k3s ha cluster inventory
+# this inventory defines 3 control plane nodes and 2 worker nodes
+
+[k3s_control_plane]
+k3s-cp-1 ansible_host=192.168.1.<cp1 IP> ansible_user=<defined_system_user>
+k3s-cp-2 ansible_host=192.168.1.<cp2 IP> ansible_user=<defined_system_user>
+k3s-cp-3 ansible_host=192.168.1.<cp3 IP> ansible_user=<defined_system_user>
+
+[k3s_workers]
+k3s-wk-1 ansible_host=192.168.1.<wk1 IP> ansible_user=<defined_system_user>
+k3s-wk-2 ansible_host=192.168.1.<wk2 IP> ansible_user=<defined_system_user>
+
+# group all k3s nodes together
+[k3s_cluster:children]
+k3s_control_plane
+k3s_workers
+
+# set python interpreter for all k3s nodes
+[k3s_cluster:vars]
+ansible_python_interpreter=/usr/bin/python3

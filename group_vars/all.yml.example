@@ -1,0 +1,70 @@
+---
+# global variables for all hosts in the k3s cluster
+
+# k3s version
+# pinned to a stable version - update as needed
+# versions at: https://github.com/k3s-io/k3s/releases
+k3s_version: v1.31.2+k3s1
+
+# cluster configuration
+# virtual IP for the control plane (kube-vip manages this)
+apiserver_endpoint: 192.168.1.<user defined kube_vip_ip>
+
+# Shared secret token for cluster nodes to authenticate with each other
+# IMPORTANT: make sure this is a secure random string in production!
+k3s_token: "<SuperSecret-K3s-Token-;P>"
+
+# network configuration
+# primary network interface for k3s networking
+# proxmox VMs usually use eth0, but sometimes ens18
+flannel_iface: eth0
+
+# the IP on which the node is reachable in the cluster
+k3s_node_ip: "{{ ansible_facts[flannel_iface]['ipv4']['address'] }}"
+
+# metalLB configuration (loadBalancer for services)
+# IP range for metalLB to assign to loadBalancer services
+metal_lb_ip_range: "192.168.1.<range bottom>-192.168.1.<range top>"
+metal_lb_mode: layer2
+metal_lb_type: native
+
+# MetalLB image versions
+metal_lb_controller_tag_version: v0.14.8
+metal_lb_speaker_tag_version: v0.14.8
+
+# Kube-VIP Configuration
+kube_vip_tag_version: v0.8.2
+kube_vip_iface: "{{ flannel_iface }}"
+kube_vip_arp: true
+
+# k3s server (control plane) configuration
+# disable built-in components that to replace with better alternatives:
+# - servicelb: using MetalLB instead
+# - traefik: install an ingress controller later (Nginx/Traefik via Helm)
+extra_server_args: >-
+  --node-ip={{ k3s_node_ip }}
+  --tls-san {{ apiserver_endpoint }}
+  --disable servicelb
+  --disable traefik
+  --flannel-iface={{ flannel_iface }}
+
+# k3s agent (worker) configuration
+extra_agent_args: >-
+  --node-ip={{ k3s_node_ip }}
+  --flannel-iface={{ flannel_iface }}
+
+# system configuration
+systemd_dir: /etc/systemd/system
+
+# timezone for all nodes (uncomment to use)
+# system_timezone: "America/New_York"
+
+# hostnames
+# these map to the proxmox gui names
+# set by the prereq role
+cluster_hostnames:
+  192.168.1.<cp1 IP>: k3s-cp-1
+  192.168.1.<cp2 IP>: k3s-cp-2
+  192.168.1.<cp3 IP>: k3s-cp-3
+  192.168.1.<wk1 IP>: k3s-wk-1
+  192.168.1.<wk2 IP>: k3s-wk-2

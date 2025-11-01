@@ -1,0 +1,138 @@
+---
+# k3s ha cluster deployment playbook
+# playbook to deploy a highly available k3s cluster with:
+# - 3 control plane nodes with embedded etcd
+# - 2 worker nodes
+# - kube-vip for control plane HA
+# - metallb for loadBalancer services
+
+- name: Pre-flight checks and known_hosts cleanup
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Clean SSH known_hosts for all cluster nodes
+      ansible.builtin.command:
+        cmd: "ssh-keygen -R {{ item }}"
+      loop:
+        - 192.168.1.5
+        - 192.168.1.6
+        - 192.168.1.7
+        - 192.168.1.8
+        - 192.168.1.9
+      failed_when: false
+      changed_when: false
+      tags: always
+
+- name: Prepare all k3s nodes
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Include prereq role
+      ansible.builtin.import_role:
+        name: prereq
+
+    - name: Include download role
+      ansible.builtin.import_role:
+        name: download
+
+- name: Setup k3s control plane (HA with embedded etcd)
+  hosts: k3s_control_plane
+  gather_facts: true
+  become: true
+  serial: 1
+  tasks:
+    - name: Include k3s_server role
+      ansible.builtin.import_role:
+        name: k3s_server
+
+- name: Deploy kube-vip for control plane HA
+  hosts: k3s_control_plane[0]
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Include kube_vip role
+      ansible.builtin.import_role:
+        name: kube_vip
+
+- name: Setup k3s worker nodes
+  hosts: k3s_workers
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Include k3s_agent role
+      ansible.builtin.import_role:
+        name: k3s_agent
+
+- name: Deploy MetalLB for LoadBalancer services
+  hosts: k3s_control_plane[0]
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Include metallb role
+      ansible.builtin.import_role:
+        name: metallb
+
+- name: Retrieve kubeconfig
+  hosts: k3s_control_plane[0]
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Fetch kubeconfig from first control plane node
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: ./kubeconfig
+        flat: true
+
+    - name: Update kubeconfig to use VIP endpoint
+      delegate_to: localhost
+      become: false
+      ansible.builtin.replace:
+        path: ./kubeconfig
+        regexp: 'https://127.0.0.1:6443'
+        replace: 'https://{{ apiserver_endpoint }}:6443'
+
+- name: Verify cluster status
+  hosts: k3s_control_plane[0]
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Wait for all nodes to be ready
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes --no-headers
+      register: nodes_output
+      until: nodes_output.stdout_lines | length == 5
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Get full nodes output with headers
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes
+      register: nodes_output_full
+      changed_when: false
+
+    - name: Display cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ nodes_output_full.stdout_lines }}"
+
+    - name: Check kube-vip pod status
+      ansible.builtin.command:
+        cmd: k3s kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-vip
+      register: kubevip_status
+      changed_when: false
+
+    - name: Display kube-vip status
+      ansible.builtin.debug:
+        msg: "{{ kubevip_status.stdout_lines }}"
+
+    - name: Check MetalLB pod status
+      ansible.builtin.command:
+        cmd: k3s kubectl get pods -n metallb-system
+      register: metallb_status
+      changed_when: false
+
+    - name: Display MetalLB status
+      ansible.builtin.debug:
+        msg: "{{ metallb_status.stdout_lines }}"

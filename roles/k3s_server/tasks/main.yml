@@ -1,0 +1,167 @@
+---
+# k3s server (control plane) installation
+# installs k3s in server mode with embedded etcd for HA
+# first server initializes the cluster, subsequent servers join it
+# =============================================================================
+
+- name: Stop any existing k3s services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+  failed_when: false
+  loop:
+    - k3s
+    - k3s-init
+
+- name: Clean previous k3s-init failures
+  ansible.builtin.command: systemctl reset-failed k3s-init
+  failed_when: false
+  changed_when: false
+
+# Control Plane Initialization
+
+- name: Initialize cluster on first control plane node
+  when: inventory_hostname == groups['k3s_control_plane'][0]
+  block:
+    - name: Create k3s manifests directory
+      ansible.builtin.file:
+        path: /var/lib/rancher/k3s/server/manifests
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Start k3s cluster initialization (first server with --cluster-init)
+      ansible.builtin.command:
+        cmd: >
+          systemd-run -p RestartSec=2 -p Restart=on-failure --unit=k3s-init
+          k3s server --cluster-init --token {{ k3s_token }} {{ extra_server_args }}
+
+    - name: Wait for kubeconfig to be created on first server
+      ansible.builtin.wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        timeout: 120
+
+    - name: Wait for k3s to be ready on first server
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: nodes_check
+      until: nodes_check.rc == 0
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Stop k3s-init service
+      ansible.builtin.systemd:
+        name: k3s-init
+        state: stopped
+      failed_when: false
+
+- name: Join additional control plane nodes to cluster
+  when: inventory_hostname != groups['k3s_control_plane'][0]
+  block:
+    - name: Get first server IP for joining
+      ansible.builtin.set_fact:
+        first_server_ip: "{{ hostvars[groups['k3s_control_plane'][0]]['k3s_node_ip'] }}"
+
+    - name: Start k3s server (joining existing cluster)
+      ansible.builtin.command:
+        cmd: >
+          systemd-run -p RestartSec=2 -p Restart=on-failure --unit=k3s-init
+          k3s server --server https://{{ first_server_ip }}:6443
+          --token {{ k3s_token }} {{ extra_server_args }}
+
+    - name: Wait for kubeconfig to be created on additional servers
+      ansible.builtin.wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        timeout: 120
+
+    - name: Wait for k3s to be ready on additional servers
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: nodes_check
+      until: nodes_check.rc == 0
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Stop k3s-init service
+      ansible.builtin.systemd:
+        name: k3s-init
+        state: stopped
+      failed_when: false
+
+# permanent k3s service setup
+
+- name: Create k3s systemd service file
+  ansible.builtin.template:
+    src: k3s-server.service.j2
+    dest: "{{ systemd_dir }}/k3s.service"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable and start k3s service
+  ansible.builtin.systemd:
+    name: k3s
+    daemon_reload: true
+    state: started
+    enabled: true
+
+- name: Wait for node token to be created
+  ansible.builtin.wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 60
+
+# Configure kubectl for the cluster
+
+- name: Create .kube directory for root user
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Copy kubeconfig to root user
+  ansible.builtin.copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /root/.kube/config
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Create kubectl symlink
+  ansible.builtin.file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/kubectl
+    state: link
+
+- name: Create crictl symlink
+  ansible.builtin.file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/crictl
+    state: link
+
+# share token with other nodes (stored in hostvars)
+
+- name: Read node token from first server
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: node_token_content
+  when: inventory_hostname == groups['k3s_control_plane'][0]
+
+- name: Store node token as fact
+  ansible.builtin.set_fact:
+    k3s_node_token: "{{ node_token_content.content | b64decode | trim }}"
+  when: inventory_hostname == groups['k3s_control_plane'][0]
+
+- name: Share token across all control plane nodes
+  ansible.builtin.set_fact:
+    k3s_node_token: "{{ hostvars[groups['k3s_control_plane'][0]]['k3s_node_token'] }}"
+  when: inventory_hostname != groups['k3s_control_plane'][0]

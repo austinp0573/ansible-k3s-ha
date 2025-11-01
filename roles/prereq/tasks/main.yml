@@ -1,0 +1,100 @@
+---
+# prerequisite tasks
+# prepares nodes for k3s installation:
+# - setting correct hostnames
+# - configuring kernel parameters
+# - installing required packages
+# - cleaning any existing k3s installation
+
+- name: Set hostname to match Proxmox GUI name
+  ansible.builtin.hostname:
+    name: "{{ cluster_hostnames[ansible_facts[flannel_iface]['ipv4']['address']] }}"
+  when: cluster_hostnames[ansible_facts[flannel_iface]['ipv4']['address']] is defined
+
+- name: Update /etc/hosts with new hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1'
+    line: "127.0.1.1 {{ cluster_hostnames[ansible_facts[flannel_iface]['ipv4']['address']] }}"
+  when: cluster_hostnames[ansible_facts[flannel_iface]['ipv4']['address']] is defined
+
+- name: Set timezone (if configured)
+  community.general.timezone:
+    name: "{{ system_timezone }}"
+  when: system_timezone is defined
+
+- name: Check if k3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Display cleanup message if k3s found
+  ansible.builtin.debug:
+    msg: "k3s is already installed. Playbook is idempotent and will handle this."
+  when: k3s_binary.stat.exists
+
+# kernel parameter configuration
+# these settings are required for k8s networking to function properly
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    reload: true
+    sysctl_set: true
+
+- name: Enable IPv6 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: "1"
+    state: present
+    reload: true
+    sysctl_set: true
+
+- name: Load br_netfilter kernel module
+  community.general.modprobe:
+    name: br_netfilter
+    state: present
+
+- name: Ensure br_netfilter loads on boot
+  ansible.builtin.copy:
+    content: br_netfilter
+    dest: /etc/modules-load.d/br_netfilter.conf
+    mode: '0644'
+
+- name: Enable bridge netfilter for iptables
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    reload: true
+    sysctl_set: true
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+
+# package installation
+# install packages required for k3s and cluster operation (should be redundant, but better safe than sorry)
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - git
+      - open-iscsi  # required for Longhorn (future)
+      - nfs-common  # required for NFS storage (future)
+      - util-linux  # general utilities
+    state: present
+
+- name: Ensure open-iscsi service is started and enabled
+  ansible.builtin.systemd:
+    name: iscsid
+    state: started
+    enabled: true

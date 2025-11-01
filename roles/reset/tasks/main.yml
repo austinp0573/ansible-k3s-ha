@@ -1,0 +1,80 @@
+---
+# k3s cluster reset
+# completely removes k3s from nodes and cleans up all associated resources
+
+- name: Stop all k3s services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  failed_when: false
+  loop:
+    - k3s
+    - k3s-agent
+    - k3s-init
+
+- name: Kill any remaining k3s processes
+  ansible.builtin.command: pkill -9 -f "k3s/data/[^/]+/bin/containerd-shim-runc"
+  register: pkill_result
+  changed_when: pkill_result.rc == 0
+  failed_when: false
+
+- name: Unmount k3s filesystems
+  ansible.builtin.include_tasks: umount_with_children.yml
+  loop:
+    - /run/k3s
+    - /var/lib/kubelet
+    - /run/netns
+    - /var/lib/rancher/k3s
+  loop_control:
+    loop_var: mounted_fs
+
+- name: Remove k3s files and directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/bin/k3s
+    - /usr/local/bin/kubectl
+    - /usr/local/bin/crictl
+    - "{{ systemd_dir }}/k3s.service"
+    - "{{ systemd_dir }}/k3s-agent.service"
+    - "{{ systemd_dir }}/k3s-init.service"
+    - /etc/rancher/k3s
+    - /etc/rancher
+    - /var/lib/rancher/k3s
+    - /var/lib/rancher
+    - /var/lib/kubelet
+    - /var/lib/cni
+    - /etc/cni
+    - /run/k3s
+    - /run/flannel
+    - /root/.kube
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Remove CNI network interfaces
+  ansible.builtin.shell: |
+    ip link delete cni0 2>/dev/null || true
+    ip link delete flannel.1 2>/dev/null || true
+  args:
+    executable: /bin/bash
+  changed_when: false
+  failed_when: false
+
+- name: Flush iptables rules
+  ansible.builtin.shell: |
+    iptables -F
+    iptables -t nat -F
+    iptables -t mangle -F
+    iptables -X
+  args:
+    executable: /bin/bash
+  changed_when: false
+  failed_when: false
+
+- name: Display reset completion message
+  ansible.builtin.debug:
+    msg: "k3s has been completely removed from {{ inventory_hostname }}"

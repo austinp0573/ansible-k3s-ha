@@ -1,0 +1,48 @@
+---
+# K3s Binary Download
+# Downloads the k3s binary for the appropriate architecture
+# Supports: x86_64, arm64, and armhf
+
+- name: Download k3s binary for x86_64
+  ansible.builtin.get_url:
+    url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s"
+    checksum: "sha256:https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/sha256sum-amd64.txt"
+    dest: /usr/local/bin/k3s
+    owner: root
+    group: root
+    mode: '0755'
+  when: ansible_facts.architecture == "x86_64"
+
+- name: Download k3s binary for arm64
+  ansible.builtin.get_url:
+    url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s-arm64"
+    checksum: "sha256:https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/sha256sum-arm64.txt"
+    dest: /usr/local/bin/k3s
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - (ansible_facts.architecture is search("arm") and ansible_facts.userspace_bits == "64")
+      or ansible_facts.architecture is search("aarch64")
+
+- name: Download k3s binary for armhf
+  ansible.builtin.get_url:
+    url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s-armhf"
+    checksum: "sha256:https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/sha256sum-arm.txt"
+    dest: /usr/local/bin/k3s
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - ansible_facts.architecture is search("arm")
+    - ansible_facts.userspace_bits == "32"
+
+- name: Verify k3s binary is executable
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k3s --version
+  register: k3s_version_output
+  changed_when: false
+
+- name: Display k3s version
+  ansible.builtin.debug:
+    msg: "{{ k3s_version_output.stdout }}"

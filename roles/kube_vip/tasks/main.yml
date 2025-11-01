@@ -1,0 +1,51 @@
+---
+# kube-vip deployment
+# deploys kube-vip as a DaemonSet to provide a virtual IP for the control plane
+# this enables HA by allowing clients to connect to a single VIP that floats
+# between control plane nodes
+
+- name: Ensure manifests directory exists
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy kube-vip DaemonSet manifest
+  ansible.builtin.template:
+    src: kube-vip-daemonset.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/kube-vip.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Wait for kube-vip pods to be created
+  ansible.builtin.command:
+    cmd: k3s kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-vip --no-headers
+  register: kubevip_pods
+  until: kubevip_pods.stdout_lines | length >= 3
+  retries: 20
+  delay: 10
+  changed_when: false
+
+- name: Wait for kube-vip pods to be running
+  ansible.builtin.command:
+    cmd: k3s kubectl get pods -n kube-system -l app.kubernetes.io/name=kube-vip -o jsonpath='{.items[*].status.phase}'
+  register: kubevip_status
+  until: kubevip_status.stdout.split() | unique | list == ['Running']
+  retries: 20
+  delay: 10
+  changed_when: false
+
+- name: Verify VIP is accessible
+  ansible.builtin.wait_for:
+    host: "{{ apiserver_endpoint }}"
+    port: 6443
+    timeout: 60
+  delegate_to: localhost
+  become: false
+
+- name: Display kube-vip deployment success
+  ansible.builtin.debug:
+    msg: "kube-vip successfully deployed and VIP {{ apiserver_endpoint }} is accessible"

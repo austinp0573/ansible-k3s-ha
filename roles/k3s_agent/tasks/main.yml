@@ -1,0 +1,57 @@
+---
+# k3s agent (worker node) installation
+# install k3s in agent mode, joins workers to the control plane
+
+- name: Stop any existing k3s agent service
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: stopped
+  failed_when: false
+
+# get join information from control plane
+
+- name: Get node token from first control plane node
+  ansible.builtin.set_fact:
+    k3s_node_token: "{{ hostvars[groups['k3s_control_plane'][0]]['k3s_node_token'] }}"
+
+- name: Verify we have a token
+  ansible.builtin.assert:
+    that:
+      - k3s_node_token is defined
+      - k3s_node_token | length > 0
+    fail_msg: "Failed to retrieve k3s node token from control plane"
+
+# create k3s agent service
+
+- name: Create k3s agent systemd service file
+  ansible.builtin.template:
+    src: k3s-agent.service.j2
+    dest: "{{ systemd_dir }}/k3s-agent.service"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable and start k3s agent service
+  ansible.builtin.systemd:
+    name: k3s-agent
+    daemon_reload: true
+    state: started
+    enabled: true
+
+- name: Wait for agent to register with cluster
+  ansible.builtin.pause:
+    seconds: 15
+
+- name: Verify agent joined the cluster
+  ansible.builtin.command:
+    cmd: k3s kubectl get node {{ inventory_hostname }} --no-headers
+  register: node_check
+  until: node_check.rc == 0
+  retries: 10
+  delay: 10
+  changed_when: false
+  delegate_to: "{{ groups['k3s_control_plane'][0] }}"
+
+- name: Display worker node status
+  ansible.builtin.debug:
+    msg: "worker node {{ inventory_hostname }} successfully joined cluster"
