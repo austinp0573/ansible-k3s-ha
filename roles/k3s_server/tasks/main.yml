@@ -2,7 +2,6 @@
 # k3s server (control plane) installation
 # installs k3s in server mode with embedded etcd for HA
 # first server initializes the cluster, subsequent servers join it
-# =============================================================================
 
 - name: Stop any existing k3s services
   ansible.builtin.systemd:
@@ -18,7 +17,26 @@
   failed_when: false
   changed_when: false
 
-# Control Plane Initialization
+# secrets encryption configuration
+
+- name: Create k3s server config directory
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deploy encryption config for secrets-at-rest
+  ansible.builtin.template:
+    src: encryption-config.yaml.j2
+    dest: /var/lib/rancher/k3s/server/encryption-config.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+# control plane initialization
 
 - name: Initialize cluster on first control plane node
   when: inventory_hostname == groups['k3s_control_plane'][0]

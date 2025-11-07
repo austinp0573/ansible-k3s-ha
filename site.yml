@@ -24,6 +24,60 @@
       changed_when: false
       tags: always
 
+- name: Generate cluster secrets
+  hosts: localhost
+  gather_facts: true
+  become: false
+  tags: always
+  tasks:
+    - name: Check if secrets file exists
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/secrets.yml"
+      register: secrets_file
+
+    - name: Generate new secrets if file doesn't exist
+      when: not secrets_file.stat.exists
+      block:
+        - name: Generate k3s cluster token
+          ansible.builtin.shell: openssl rand -hex 32
+          register: generated_k3s_token
+          changed_when: false
+
+        - name: Generate encryption key
+          ansible.builtin.shell: head -c 32 /dev/urandom | base64 -w 0
+          register: generated_encryption_key
+          changed_when: false
+
+        - name: Create secrets.yml file
+          ansible.builtin.copy:
+            content: |
+              ---
+              # auto-generated secrets for k3s cluster
+              # WARNING - this file contains sensitive information
+              # generated: {{ ansible_date_time.iso8601 }}
+              
+              # Shared secret token for cluster nodes to authenticate
+              k3s_token: "{{ generated_k3s_token.stdout }}"
+              
+              # Encryption key for secrets-at-rest (base64 encoded 32 bytes)
+              k3s_encryption_key: "{{ generated_encryption_key.stdout }}"
+            dest: "{{ playbook_dir }}/secrets.yml"
+            mode: '0600'
+
+    - name: Load secrets from file
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/secrets.yml"
+      no_log: true
+
+    - name: Set secrets as facts for all hosts
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_token }}"
+        k3s_encryption_key: "{{ k3s_encryption_key }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['k3s_cluster'] }}"
+      no_log: true
+
 - name: Prepare all k3s nodes
   hosts: k3s_cluster
   gather_facts: true

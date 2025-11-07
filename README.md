@@ -10,6 +10,8 @@ this deploys a k3s cluster with:
 - 2 worker nodes
 - kube-vip for control plane ha (virtual IP)
 - metallb for loadBalancer services
+- **secrets encryption at rest** (AES-CBC)
+- **auto-generated secure tokens** (not committed to git)
 
 ## architecture
 
@@ -94,16 +96,18 @@ ansible-playbook site.yml
 ```
 
 it will:
-1. clean ssh known_hosts
-2. configure all nodes (hostnames, kernel parameters, packages)
-3. download k3s binary
-4. initialize control plane with embedded etcd
-5. join additional control plane nodes
-6. join worker nodes
-7. deploy kube-vip for HA
-8. deploy metallb for loadBalancer services
-9. verify cluster
-10. download kubeconfig to `./kubeconfig`
+1. generate secure cluster secrets (or reuse if `secrets.yml` exists)
+2. clean ssh known_hosts
+3. configure all nodes (hostnames, kernel parameters, packages)
+4. download k3s binary
+5. deploy encryption config to all control plane nodes
+6. initialize control plane with embedded etcd
+7. join additional control plane nodes
+8. join worker nodes
+9. deploy kube-vip for HA
+10. deploy metallb for loadBalancer services
+11. verify cluster
+12. download kubeconfig to `./kubeconfig`
 
 ### 5. access the cluster
 
@@ -128,7 +132,9 @@ k3s_version: v1.31.2+k3s1
 apiserver_endpoint: 192.168.1.<as defined by user>
 
 # Cluster authentication token
-k3s_token: "SuperSecret-K3s-Token"
+# NOTE: Auto-generated in secrets.yml (not committed to git)
+# k3s_token: "GENERATED_IN_SECRETS_YML"
+# k3s_encryption_key: "GENERATED_IN_SECRETS_YML"
 
 # MetalLB LoadBalancer IP range
 metal_lb_ip_range: "192.168.1.<range bottom>-192.168.1.<range top>"
@@ -182,6 +188,37 @@ kubectl expose deployment nginx --port=80 --type=LoadBalancer
 kubectl get svc nginx  # should get an IP from the MetalLB pool
 ```
 
+## security
+
+This deployment includes **production-grade security features**:
+
+- ✅ **Secrets encryption at rest** - All Kubernetes secrets encrypted in etcd using AES-CBC
+- ✅ **Auto-generated secure tokens** - Cryptographically secure tokens generated on first run
+- ✅ **No secrets in git** - `secrets.yml` is auto-generated and gitignored
+- ✅ **TLS everywhere** - API server and internal communications use TLS
+- ✅ **RBAC enabled** - Role-based access control enforced by default
+
+For additional hardening before exposing to the internet, see **[SECURITY.md](SECURITY.md)** for:
+- Network policies
+- Pod security standards
+- Audit logging
+- Firewall configuration
+- And much more...
+
+### secrets management
+
+Secrets are auto-generated on first run and stored in `secrets.yml`:
+```bash
+# First run - generates new secrets
+./deploy.sh
+
+# Subsequent runs - reuses existing secrets.yml
+./deploy.sh
+
+# To regenerate secrets (full cluster rebuild required)
+rm secrets.yml && ./reset.sh && ./deploy.sh
+```
+
 ## project structure
 
 ```
@@ -190,6 +227,8 @@ ansible-k3s-ha/
 ├── site.yml                 # Main deployment playbook
 ├── reset.yml                # Cluster teardown playbook
 ├── README.md                # This file
+├── secrets.yml              # Auto-generated secrets (gitignored)
+├── secrets.yml.example      # Example secrets file structure
 ├── inventory/
 │   └── hosts.ini           # Node inventory
 ├── group_vars/
@@ -198,6 +237,9 @@ ansible-k3s-ha/
     ├── prereq/             # System preparation
     ├── download/           # K3s binary download
     ├── k3s_server/         # Control plane installation
+    │   └── templates/
+    │       ├── k3s-server.service.j2
+    │       └── encryption-config.yaml.j2  # secrets encryption config
     ├── k3s_agent/          # Worker installation
     ├── kube_vip/           # HA virtual IP
     ├── metallb/            # LoadBalancer service
