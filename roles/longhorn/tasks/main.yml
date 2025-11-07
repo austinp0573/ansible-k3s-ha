@@ -1,0 +1,61 @@
+---
+# longhorn distributed storage deployment
+# provides persistent volumes for kubernetes workloads
+
+- name: check if longhorn is already installed
+  ansible.builtin.command:
+    cmd: k3s kubectl get namespace longhorn-system
+  register: longhorn_ns
+  failed_when: false
+  changed_when: false
+
+- name: install longhorn
+  when: longhorn_ns.rc != 0
+  block:
+    - name: create longhorn namespace
+      ansible.builtin.command:
+        cmd: k3s kubectl create namespace longhorn-system
+      changed_when: true
+
+    - name: label namespace as privileged for pod security
+      ansible.builtin.command:
+        cmd: k3s kubectl label namespace longhorn-system pod-security.kubernetes.io/enforce=privileged
+      changed_when: true
+
+    - name: install longhorn via kubectl
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.7.2/deploy/longhorn.yaml
+      changed_when: true
+
+    - name: wait for longhorn deployment to be ready
+      ansible.builtin.command:
+        cmd: k3s kubectl -n longhorn-system rollout status deployment/longhorn-driver-deployer --timeout=600s
+      changed_when: false
+
+    - name: wait for longhorn manager daemonset
+      ansible.builtin.command:
+        cmd: k3s kubectl -n longhorn-system rollout status daemonset/longhorn-manager --timeout=600s
+      changed_when: false
+
+- name: configure longhorn settings
+  ansible.builtin.shell: |
+    k3s kubectl -n longhorn-system patch settings.longhorn.io default-replica-count \
+      -p '{"value":"2"}' --type=merge
+  changed_when: false
+  failed_when: false
+
+- name: set longhorn as default storage class
+  ansible.builtin.command:
+    cmd: k3s kubectl patch storageclass longhorn -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+  changed_when: false
+  failed_when: false
+
+- name: verify longhorn installation
+  ansible.builtin.command:
+    cmd: k3s kubectl -n longhorn-system get pods
+  register: longhorn_pods
+  changed_when: false
+
+- name: display longhorn status
+  ansible.builtin.debug:
+    msg: "{{ longhorn_pods.stdout_lines }}"

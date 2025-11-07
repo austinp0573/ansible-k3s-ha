@@ -1,0 +1,54 @@
+---
+# cert-manager deployment for automated certificate management
+# starts with self-signed certificates for homelab use
+
+- name: check if cert-manager is already installed
+  ansible.builtin.command:
+    cmd: k3s kubectl get namespace cert-manager
+  register: certmgr_ns
+  failed_when: false
+  changed_when: false
+
+- name: install cert-manager
+  when: certmgr_ns.rc != 0
+  block:
+    - name: install cert-manager crds and deployment
+      ansible.builtin.command:
+        cmd: k3s kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
+      changed_when: true
+
+    - name: wait for cert-manager webhook to be ready
+      ansible.builtin.command:
+        cmd: k3s kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=300s
+      changed_when: false
+
+    - name: wait for cert-manager controller to be ready
+      ansible.builtin.command:
+        cmd: k3s kubectl -n cert-manager rollout status deployment/cert-manager --timeout=300s
+      changed_when: false
+
+    - name: wait for cert-manager cainjector to be ready
+      ansible.builtin.command:
+        cmd: k3s kubectl -n cert-manager rollout status deployment/cert-manager-cainjector --timeout=300s
+      changed_when: false
+
+- name: create self-signed cluster issuer manifest
+  ansible.builtin.template:
+    src: selfsigned-issuer.yaml.j2
+    dest: /tmp/selfsigned-issuer.yaml
+    mode: '0644'
+
+- name: apply self-signed cluster issuer
+  ansible.builtin.command:
+    cmd: k3s kubectl apply -f /tmp/selfsigned-issuer.yaml
+  changed_when: true
+
+- name: verify cert-manager installation
+  ansible.builtin.command:
+    cmd: k3s kubectl -n cert-manager get pods
+  register: certmgr_pods
+  changed_when: false
+
+- name: display cert-manager status
+  ansible.builtin.debug:
+    msg: "{{ certmgr_pods.stdout_lines }}"

@@ -120,6 +120,19 @@ kubectl get pods -A
 You should see something like:
 ![kubectl-get-nodes](./success.png)
 
+### 6. deploy day-0 applications (optional)
+
+after cluster is up, deploy essential apps:
+
+```bash
+./deploy-apps.sh
+```
+
+this installs:
+- **longhorn** - distributed storage
+- **cert-manager** - tls certificate automation
+- **argocd** - gitops continuous delivery
+
 ## configuration
 
 ### key variables (group_vars/all.yml)
@@ -152,20 +165,28 @@ Edit `group_vars/all.yml` to change:
 
 ## common operations
 
-### resetting the cluster
+### resetting applications only
 
-to wipe everything and start over:
+to remove day-0 apps but keep cluster infrastructure:
 
 ```bash
-ansible-playbook reset.yml
+./reset-apps.sh
 ```
-or 
+
+### resetting the entire cluster
+
+to wipe everything and start over:
 
 ```bash
 ./reset.sh
 ```
 
 this stops k3s, removes all binaries/data, cleans up networking, and deletes the local kubeconfig
+
+**full rebuild:**
+```bash
+./reset.sh && ./deploy.sh && ./deploy-apps.sh
+```
 
 ### checking cluster health
 
@@ -198,12 +219,6 @@ This deployment includes **production-grade security features**:
 - ✅ **TLS everywhere** - API server and internal communications use TLS
 - ✅ **RBAC enabled** - Role-based access control enforced by default
 
-For additional hardening before exposing to the internet, see **[SECURITY.md](SECURITY.md)** for:
-- Network policies
-- Pod security standards
-- Audit logging
-- Firewall configuration
-- And much more...
 
 ### secrets management
 
@@ -223,27 +238,37 @@ rm secrets.yml && ./reset.sh && ./deploy.sh
 
 ```
 ansible-k3s-ha/
-├── ansible.cfg              # Ansible configuration
-├── site.yml                 # Main deployment playbook
-├── reset.yml                # Cluster teardown playbook
-├── README.md                # This file
-├── secrets.yml              # Auto-generated secrets (gitignored)
-├── secrets.yml.example      # Example secrets file structure
+├── ansible.cfg              # ansible configuration
+├── site.yml                 # main deployment playbook (infrastructure)
+├── apps.yml                 # day-0 applications playbook
+├── reset.yml                # cluster teardown playbook
+├── deploy.sh                # infrastructure deployment script
+├── deploy-apps.sh           # applications deployment script
+├── reset.sh                 # infrastructure reset script
+├── reset-apps.sh            # applications reset script
+├── README.md                # this file
+├── secrets.yml              # auto-generated secrets (gitignored)
+├── secrets.yml.example      # example secrets file structure
 ├── inventory/
-│   └── hosts.ini           # Node inventory
+│   └── hosts.ini           # node inventory
 ├── group_vars/
-│   └── all.yml             # Global variables
+│   └── all.yml             # global variables
 └── roles/
-    ├── prereq/             # System preparation
-    ├── download/           # K3s binary download
-    ├── k3s_server/         # Control plane installation
+    ├── prereq/             # system preparation
+    ├── download/           # k3s binary download
+    ├── k3s_server/         # control plane installation
     │   └── templates/
     │       ├── k3s-server.service.j2
-    │       └── encryption-config.yaml.j2  # secrets encryption config
-    ├── k3s_agent/          # Worker installation
-    ├── kube_vip/           # HA virtual IP
-    ├── metallb/            # LoadBalancer service
-    └── reset/              # Cleanup tasks
+    │       ├── encryption-config.yaml.j2
+    │       ├── audit-policy.yaml.j2
+    │       └── psa-config.yaml.j2
+    ├── k3s_agent/          # worker installation
+    ├── kube_vip/           # ha virtual ip
+    ├── metallb/            # loadbalancer service
+    ├── longhorn/           # distributed storage
+    ├── cert_manager/       # tls certificate automation
+    ├── argocd/             # gitops continuous delivery
+    └── reset/              # cleanup tasks
 ```
 
 ## Troubleshooting
