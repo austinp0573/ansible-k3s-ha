@@ -1,0 +1,55 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+# don't generate audit events for all requests in requestreceived stage
+omitStages:
+  - "RequestReceived"
+rules:
+  # log pod changes at requestresponse level
+  - level: RequestResponse
+    resources:
+    - group: ""
+      resources: ["pods"]
+  # log "pods/log", "pods/status" at metadata level
+  - level: Metadata
+    resources:
+    - group: ""
+      resources: ["pods/log", "pods/status"]
+  # don't log requests to a configmap called "controller-leader"
+  - level: None
+    resources:
+    - group: ""
+      resources: ["configmaps"]
+      resourceNames: ["controller-leader"]
+  # don't log watch requests by the "system:kube-proxy" on endpoints or services
+  - level: None
+    users: ["system:kube-proxy"]
+    verbs: ["watch"]
+    resources:
+    - group: ""
+      resources: ["endpoints", "services"]
+  # don't log authenticated requests to certain non-resource url paths
+  - level: None
+    userGroups: ["system:authenticated"]
+    nonResourceURLs:
+    - "/api*" # wildcard matching
+    - "/version"
+  # log the request body of configmap changes in kube-system
+  - level: Request
+    resources:
+    - group: ""
+      resources: ["configmaps"]
+    namespaces: ["kube-system"]
+  # log configmap and secret changes in all other namespaces at the metadata level
+  - level: Metadata
+    resources:
+    - group: ""
+      resources: ["secrets", "configmaps"]
+  # log all other resources in core and extensions at the request level
+  - level: Request
+    resources:
+    - group: ""
+    - group: "extensions"
+  # a catch-all rule to log all other requests at the metadata level
+  - level: Metadata
+    omitStages:
+    - "RequestReceived"

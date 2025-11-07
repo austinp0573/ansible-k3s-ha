@@ -1,0 +1,22 @@
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: PodSecurity
+  configuration:
+    apiVersion: pod-security.admission.config.k8s.io/v1
+    kind: PodSecurityConfiguration
+    # defaults applied when a mode label is not set
+    defaults:
+      enforce: "baseline"
+      enforce-version: "latest"
+      audit: "restricted"
+      audit-version: "latest"
+      warn: "restricted"
+      warn-version: "latest"
+    exemptions:
+      # array of authenticated usernames to exempt
+      usernames: []
+      # array of runtime class names to exempt
+      runtimeClasses: []
+      # array of namespaces to exempt
+      namespaces: [kube-system, metallb-system]

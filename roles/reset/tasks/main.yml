@@ -2,6 +2,11 @@
 # k3s cluster reset
 # completely removes k3s from nodes and cleans up all associated resources
 
+- name: Disable firewall
+  community.general.ufw:
+    state: disabled
+  failed_when: false
+
 - name: Stop all k3s services
   ansible.builtin.systemd:
     name: "{{ item }}"

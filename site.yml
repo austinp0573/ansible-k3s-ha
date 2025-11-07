@@ -91,6 +91,67 @@
       ansible.builtin.import_role:
         name: download
 
+- name: Configure firewall on all nodes
+  hosts: k3s_cluster
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Allow ssh from anywhere
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+
+    - name: Allow api server from internal network only
+      community.general.ufw:
+        rule: allow
+        port: '6443'
+        proto: tcp
+        from_ip: 192.168.1.0/24
+
+    - name: Allow kubelet api from internal network only
+      community.general.ufw:
+        rule: allow
+        port: '10250'
+        proto: tcp
+        from_ip: 192.168.1.0/24
+
+    - name: Allow etcd from internal network only (control plane nodes)
+      community.general.ufw:
+        rule: allow
+        port: '2379:2380'
+        proto: tcp
+        from_ip: 192.168.1.0/24
+      when: "'k3s_control_plane' in group_names"
+
+    - name: Allow flannel vxlan from internal network only
+      community.general.ufw:
+        rule: allow
+        port: '8472'
+        proto: udp
+        from_ip: 192.168.1.0/24
+
+    - name: Allow metallb from internal network only
+      community.general.ufw:
+        rule: allow
+        port: '7946'
+        proto: any
+        from_ip: 192.168.1.0/24
+
+    - name: Set ufw default policy to deny incoming
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Set ufw default policy to allow outgoing
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+
 - name: Setup k3s control plane (HA with embedded etcd)
   hosts: k3s_control_plane
   gather_facts: true

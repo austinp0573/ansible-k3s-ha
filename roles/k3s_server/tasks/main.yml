@@ -17,11 +17,19 @@
   failed_when: false
   changed_when: false
 
-# secrets encryption configuration
+# security configuration
 
 - name: Create k3s server config directory
   ansible.builtin.file:
     path: /var/lib/rancher/k3s/server
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create k3s server logs directory
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/logs
     state: directory
     owner: root
     group: root
@@ -35,6 +43,22 @@
     group: root
     mode: '0600'
   no_log: true
+
+- name: Deploy audit policy for api server logging
+  ansible.builtin.template:
+    src: audit-policy.yaml.j2
+    dest: /var/lib/rancher/k3s/server/audit-policy.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Deploy pod security admission config
+  ansible.builtin.template:
+    src: psa-config.yaml.j2
+    dest: /var/lib/rancher/k3s/server/psa-config.yaml
+    owner: root
+    group: root
+    mode: '0644'
 
 # control plane initialization
 

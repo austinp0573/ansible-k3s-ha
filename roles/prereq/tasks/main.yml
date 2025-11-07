@@ -88,9 +88,10 @@
       - curl
       - wget
       - git
-      - open-iscsi  # required for Longhorn (future)
-      - nfs-common  # required for NFS storage (future)
+      - open-iscsi  # required for longhorn (future)
+      - nfs-common  # required for nfs storage (future)
       - util-linux  # general utilities
+      - ufw         # firewall
     state: present
 
 - name: Ensure open-iscsi service is started and enabled
